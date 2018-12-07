@@ -1,0 +1,85 @@
+package app.ram.xposed_vol;
+
+/**
+ * Created by ram on 11-02-2018.
+ */
+
+import android.content.Context;
+import android.os.PowerManager;
+import android.os.Vibrator;
+import android.view.KeyEvent;
+import java.lang.reflect.Field;
+
+import de.robv.android.xposed.IXposedHookLoadPackage;
+import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
+import de.robv.android.xposed.XposedHelpers;
+import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
+
+import static android.content.ContentValues.TAG;
+
+public class Main implements IXposedHookLoadPackage {
+    Context ctx;
+    public long time = System.currentTimeMillis();
+    public void handleLoadPackage(final LoadPackageParam lpparam) throws Throwable {
+       if (!lpparam.packageName.equals("android")) {
+           return;
+        }
+        Class localClass = XposedHelpers.findClass("com.android.internal.policy.impl.PhoneWindowManager",
+                lpparam.classLoader);
+        XposedBridge.hookAllConstructors(localClass, new XC_MethodHook() {
+            protected void afterHookedMethod(final XC_MethodHook.MethodHookParam paramAnonymousMethodHookParam)
+                    throws Throwable {
+            }
+        });
+        /*
+        XposedHelpers.findAndHookMethod(localClass, "isWakeKeyWhenScreenOff", int.class, new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                int keyCode = (Integer) param.args[0];
+                if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                    param.setResult(Boolean.TRUE);
+                }
+            }
+        });
+        */
+        XposedHelpers.findAndHookMethod(localClass, "interceptKeyBeforeQueueing", KeyEvent.class,
+                Integer.TYPE, new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param)
+                    throws Throwable {
+                Field f = param.thisObject.getClass().getDeclaredField("mContext");
+                f.setAccessible(true);
+                ctx = (Context) f.get(param.thisObject);
+                PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+                KeyEvent event = (KeyEvent) param.args[0];
+                int code = event.getKeyCode();
+                if (!pm.isScreenOn()) {
+                    XposedBridge.log("Volume_control - HHHHHHHHEYYYYYYYYYY screen ooff!");
+                    if (code == KeyEvent.KEYCODE_VOLUME_UP && event.getAction() == 0) {
+                        XposedBridge.log("Volume_control - HEEEEEEYYY. volume up pressed");
+                        //int c = 0;
+                        time = System.currentTimeMillis();
+                    }
+
+                    if (code == KeyEvent.KEYCODE_VOLUME_UP && event.getAction() == 1) {
+                        XposedBridge.log("Volume_control - HEEEEEEYYY. volume up released");
+                        //int c = 0;
+                        if (System.currentTimeMillis() - time > 500) {
+                            XposedBridge.log("Volume_control - It was a long press");
+                        } else {
+                            XposedBridge.log("Volume_control - It was a short press");
+                            Vibrator v = (Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
+                            // Vibrate for 500 milliseconds
+                            v.vibrate(200);
+                            PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK |
+                                    PowerManager.ACQUIRE_CAUSES_WAKEUP, TAG);
+                            wl.acquire(2000);
+                        }
+                    }
+                }
+            }
+        });
+
+    }
+}
